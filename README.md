@@ -15,7 +15,7 @@ Grinder is a distributed map/reduce framework for state based analytics. The pri
     SELECT count FROM nameCounts WHERE name = 'Joe'
     SELECT value FROM averageAge
 
-Notice that the query is SQL. Grinder itself is never queried. Grinder is a state engine and emits declarative facts that can be stored in any database you like (or K/V store, search appliance, web-service etc). In Grinder you model inputs and outputs using map/reduce operations. The queue emits facts, Grinder emits conclusions.
+Notice that the query is SQL. Grinder itself is never queried. Grinder is a state engine and emits declarative facts that can be stored in any database you like (or K/V store, search appliance, web-service etc). In Grinder you model inputs and outputs using map/reduce operations. The queue asserts facts, Grinder emits conclusions.
 
 Grinder guarantees processing and can perform transactions across multiple data sources. For example, it can store a normalized record in POSTGRES, a fully de-normalized version in Cassandra and also make sure the right keywords are published to SOLR. When the record is deleted, Grinder will reverse everything. Grinder can model transaction even for non-transactional stores. The stream below takes three inputs and builds a combined view, a reconciled total. 
 
