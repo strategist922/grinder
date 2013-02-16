@@ -1,0 +1,87 @@
+apply plugin: 'java'
+//apply plugin: 'application'
+//apply plugin: 'idea'
+
+//mainClassName = 'com.exacttarget.spike.WordCountTopo.Submitter'
+def stormTopologyName = 'WordCountTopology'
+def stormTopologyClassName = 'com.exacttarget.spike.WordCountTopology'
+
+//configurations {
+//  provided
+//}
+//
+//sourceSets {
+//  main.compileClasspath += configurations.provided
+//  test.compileClasspath += configurations.provided
+//  test.runtimeClasspath += configurations.provided
+//}
+
+//idea {
+//  project {
+//    jdkName = '1.6'
+//    languageLevel = '1.6'
+//  }
+//
+//  module {
+//    scopes.PROVIDED.plus += configurations.provided
+//  }
+//}
+
+repositories {
+  mavenRepo name: 'codehaus', url: 'http://repository.codehaus.org/'
+  mavenRepo name: 'cloudera', url: 'https://repository.cloudera.com/content/repositories/releases/'
+  mavenRepo name: 'clojars.org', url: 'http://clojars.org/repo/'
+  mavenCentral()
+  //mavenRepo name: 'exacttarget', url: 'http://etinjavbld1.et.local:8081/nexus/content/groups/public/'
+  mavenRepo name: 'cloudera', url: 'https://repository.cloudera.com/artifactory/cloudera-repos/'
+}
+
+def libs = [
+    hbase: [
+        'org.apache.hbase:hbase:0.92.1-cdh4.1.1',
+        'org.apache.hadoop:hadoop-common:2.0.0-cdh4.1.1'
+    ],
+    curator: [
+        'com.netflix.curator:curator-recipes:1.2.6'
+    ],
+    astyanax: [
+        'com.netflix.astyanax:astyanax:1.56.23'
+    ],
+    groovy: [
+        'org.codehaus.groovy:groovy-all:2.0.6'
+    ]
+]
+
+dependencies {
+  compile 'org.ow2.asm:asm:4.1'
+  compile 'junit:junit:3.8.1'
+
+  compile 'storm:storm:0.8.1'
+  compile 'storm:storm-kafka:0.8.0-wip3'
+
+  compile 'org.iq80.leveldb:leveldb:0.4'
+  compile 'org.msgpack:msgpack:0.6.7'
+  compile 'org.mongodb:mongo-java-driver:2.10.1'
+  compile 'us.monoid.web:resty:0.3.2'
+
+  compile libs.astyanax
+  compile libs.hbase
+  compile libs.groovy
+
+}
+
+//jar {
+//  from { configurations.compile.collect { it.isDirectory() ? it : zipTree(it) } }
+//}
+
+task stormKill(type:Exec) {
+  def STORM_HOME = new File("${System.env.STORM_HOME}").canonicalPath
+  workingDir STORM_HOME
+  commandLine 'bin/storm', 'kill', stormTopologyName
+}
+
+task stormDeploy(type:Exec) {
+  def STORM_HOME = new File("${System.env.STORM_HOME}").canonicalPath
+  workingDir STORM_HOME
+  commandLine 'bin/storm', 'jar', jar.archivePath, stormTopologyClassName
+}

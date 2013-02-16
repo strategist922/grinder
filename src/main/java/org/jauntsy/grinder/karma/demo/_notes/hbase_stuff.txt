@@ -1,0 +1,71 @@
+    // *** HBase/Storage config stuff
+
+    private static void prepHbase(String ns) throws IOException {
+        HBaseAdmin admin = new HBaseAdmin(HBaseConfiguration.create());
+        dropCreateMapRedTables(ns, admin, "accountBalance");
+        dropCreateMapRedTables(ns, admin, "wordCount");
+        dropCreateMapRedTables(ns, admin, "orgidUseridToUsername");
+        dropCreateMapRedTables(ns, admin, "transactionCounts");
+        dropCreateMapRedTables(ns, admin, "userCount");
+        admin.close();
+    }
+
+    private static void dropCreateMapRedTables(String ns, HBaseAdmin admin, String tableName) throws IOException {
+        dropCreateTable(admin, ns + ":" + tableName + "_map", false);
+        dropCreateTable(admin, ns + ":" + tableName + "_red", true);
+    }
+
+    private static void dropCreateTable(HBaseAdmin admin, String tableName, boolean bloom) throws IOException {
+        try {
+            while (admin.tableExists(tableName)) {
+                System.out.println("Attempting to delete: " + tableName);
+                try { admin.disableTable(tableName); } catch(Exception ignore) {}
+                try { admin.deleteTable(tableName); } catch(Exception ignore) {}
+            }
+        } catch(Exception ignore) {
+            System.out.println(ignore);
+        }
+        System.out.println("Creating table: " + tableName);
+        HTableDescriptor desc = new HTableDescriptor(tableName);
+        HColumnDescriptor increments = new HColumnDescriptor("increments");
+        if (bloom)
+            increments.setBloomFilterType(StoreFile.BloomType.ROWCOL);
+        desc.addFamily(increments);
+        admin.createTable(desc);
+    }
+
+
+
+
+        private static ReducerState newCassState() throws ConnectionException {
+    //        prepCassandra("demo", "bankdemo");
+            return new CassandraReducerState("demo");
+        }
+
+        private static void prepCassandra(String keyspaceName, String tablePrefix) throws ConnectionException {
+            AstyanaxContext<Keyspace> context = new AstyanaxContext.Builder()
+                    .forKeyspace(keyspaceName)
+                    .withAstyanaxConfiguration(new AstyanaxConfigurationImpl()
+                            .setDiscoveryType(NodeDiscoveryType.NONE)
+                    )
+                    .withConnectionPoolConfiguration(new ConnectionPoolConfigurationImpl("MyConnection")
+                            .setPort(9160)
+                            .setMaxConnsPerHost(1)
+                            .setSeeds("127.0.0.1:9160")
+                    )
+                    .withConnectionPoolMonitor(new CountingConnectionPoolMonitor())
+                    .buildKeyspace(ThriftFamilyFactory.getInstance());
+            context.start();
+            Keyspace keyspace = context.getEntity();
+            KeyspaceDefinition definition = keyspace.describeKeyspace();
+            for (ColumnFamilyDefinition cfd : definition.getColumnFamilyList()) {
+                String name = cfd.getName();
+                if (name.startsWith(tablePrefix + "_")) {
+                    System.out.println("Truncating " + name);
+                    keyspace.truncateColumnFamily(name);
+                }
+            }
+        }
+
+
+

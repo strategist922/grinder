@@ -1,0 +1,104 @@
+Cache and batch everything
+
+Cache the "depth" of reduce trees by table.
+Only query for enough nodes to satisfy depth.
+Lazily query child nodes if not deep enough and remember total depth.
+
+For typical values with few source documents this will keep the speed to one read/write per value.
+
+New spout setup
+
+spout routes by key to gateway
+
+gateway loads previous version from cache or db and sends (prev, next) downstream
+each k/v node does same, always sending prev/next
+
+ie. namecount calcs the map from prev and reduce, sends the map results to reducers
+
+ie.
+
+user[7] { name 'Joe' } => gateway
+
+gateway loads last user[7], finds { name 'Sue' } // DISK!!!! OR CACHE
+
+send({name 'Sue'}, {name 'Joe'}) // also put {name 'Joe'} in cache so when {name 'Tod'} comes along it merges with this
+ack
+
+map => send ('Sue', user[7], prev: {count:1}, next: null)
+       send ('Joe', user[7], prev: null, next: {count:1})
+ack
+
+red => send ({name 'Sue' value 33}, {name 'Sue' value 32})
+ack
+
+red => send ({name 'Joe' count null}, {name 'Joe' count 1})
+ack
+
+crash
+2nd send, both joe and sue have identical values and so don't replace their previous values and emit identical results
+
+ack
+ack
+ack
+
+
+spout gets ack, it is now "safe" for the gateway to stop sending prev:{name 'Sue'}
+spout sends 'commit' message to gateway
+gateway marks item as commited and writes oldest commited value to disk
+
+Edge cases:
+
+What if we crash at this moment.... prev on disk is {name 'Sue'} but {name 'Joe'} is not sent again...
+When {name 'Bob'} shows up it clears {name 'Sue'}, not {name 'Joe'} and leaves 'Joes' everywhere.
+
+Hmmm: if gateway loads prev and next, we get (null, {name 'Sue'}) on {name 'Joe'}
+send ({name 'Sue'}, {name 'Joe'}), save ({name 'Sue'}, {name 'Joe'}) and commit
+
+on crash get ({name 'Joe'}), since it equals saved above, continue but don't save new value
+
+What if two spouts send user[7], first on sends joe, then crashes without saving but downstream has some joe saved
+with one spout, we get joe again, no problem
+but if the second run gets {name: bob} => gateway sees prev:null, next:'Sue', it can't clear joe, but maybe this is OK
+because 'joe' will show up next, seeing {name bob}, removing bob and adding joe.
+
+What if map does this....
+Today map load prev from disk and sends the deltas onward to red
+Red writes results and sends a commit message back to map which saves the current value to prev
+
+If we crash now, we no longer have 'Sue' but we can store prev, next
+
+
+map gets {name joe}, load snapshot of {prev: null, next: {name: sue}}
+saves {prev:{name: sue}, next:{name: joe}}
+crash before save
+gets {name: joe} sees next is new and repeats as above (sends with stored next)
+crash after save sees next is same, sends with stored prev
+gets {name: bob} after crashing, after sending joe downstream but before saving joe
+looks like send({name sue}, {name bob}) <= joe is dangling downstream now
+
+At this point we need to restore the queue joe came off of but we can't merge since bob was after and joe is nowhere to be seen
+Is it worth sending {prev joe} {next bob}. Ie. on a write that does not merge/replace a value we restate the current value and unstate the prev value.
+
+
+
+
+This would imply that you can fix data by posting {topic:'users(id)', ts:0, {id:1001, name:'Sam'}}
+
+The above would, assuming name is set, send the current name downstream with a prev of 'Sam' resulting in fixing the old data
+
+Another strategy, save ALL pending values in doc.
+
+on ack, send a commit msg, gateway saves without pending value
+
+
+
+for change name from sue to joe
+
+map can crash
+red sue can crash
+pub sue can crash
+red joe can crash
+pub joe can crash
+
+
+

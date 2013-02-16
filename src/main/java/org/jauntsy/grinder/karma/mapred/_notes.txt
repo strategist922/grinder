@@ -1,0 +1,324 @@
+Can a map phase do a DB lookup?
+
+
+K/V vs Tuple
+
+user.map { u -> emit(u.name, 1L) }.reduce { a, b -> a + b }
+
+
+A tuple cannot express deletion
+
+ie.
+
+org { id, name, cc } => (7, 'acme', 'us')
+
+(7, 'acme', 'us') -> name count via id -> acme: 1
+
+Acme cannot be deleted.... but maybe that is ok
+(7, 'acme', 'us', true) -> { c -> if (c.active) emit(c.name, 1) }
+
+vs.
+
+[7, ['acme','us'] -> name count -> acme: 1
+[7, null] -> emits no keys ->
+
+if kv is ALWAYs 2, you don't need labels
+
+
+mapred("user", "{ emit(it.name, 1) }", "{ a, b -> a + b }").saveAs("nameCount")
+mapred("nameCount", "{ emit(null, [it.count, it.name]) }", "{ a, b -> max(a,b) }", "{a[1]}").saveAs("bestName")
+red("{ a, b -> a + b }").map("user", "{u->emit(u.name, 1)}").map("org","{emit(it.name,1)}").saveAs("
+
+
+map("user") { emit(it.name, 1) }.as("name", "count").red { a, b -> a.count + b.count }
+
+
+map("user", ["id"]) { u -> emit(u.name, 1) }.
+
+
+class UserSpout {
+  void declareOutputFields(declarer) {
+    declarer.declare(L("id"), L("name","age","addresses",L("city","state")))
+    declare(nums("id"), strings("name"), nums("age"), rel("addresses", strings("id"), strings("city"), strings("state")))))
+    declare(strings("name"), nums("count"))
+    declare("id", ["name", "age", "addresses", ["city", "state"]])
+    new Kvf(1, "id", "name", "age", "addresses", [
+  }
+}
+
+
+if a bolt sends the above, it can add, or update orgs but cannot delete them
+
+you need
+
+org { name } => (7,('acme'))
+
+user { name, age, addresses { city, state } } => (7,('joe',27,[('home' ('San Francisco','CA'))]))
+
+('home' => ['San Francisco' 'CA'])
+
+
+user [#7 {:name 'Joe' :age 27 :addresses ['home' => {:city 'San Francisco' :state 'CA'} 'work' => {:city ... }] }]
+
+
+user { name age addresses { city state } }
+[#7 {'joe' 27 [#'home' {'San Francisco' 'CA'}}
+
+
+> db.get('user', 7)
+[7,[]]
+> db.get('user[7] { name }])
+[7,['joe']]
+> db.get('user[7] { name, addresses { state } }')
+[7,['joe',[['home',['CA']]]]]
+>
+{:user [7 => {:name 'Joe' :age 27 :addresses ['home'=>{:city 'San Francisco' :state 'CA'}]}]}
+
+
+
+def builder = new MrBuilder()
+builder.setSpout("userSpout", userSpoutConfig, L("id"))
+builder.map("userSpout") { u -> emit(null, u.age, 1) }
+       .as("null", "total", "samples").groupBy(1)
+       .red { a, b -> [a.total + b.total, a.samples + b.samples] }
+       .fmt { v -> [a.total / b.samples] }
+       .to("averageAge[null] { value }")
+
+builder.map("userSpout[id] { age }") { u -> emit(null, u.age, 1) }
+       .red("tmp[null] { total, samples }") { a, b -> [a.total + b.total, a.samples + b.samples] }
+       .fmt("averageAge[null] { value }") { k, v -> [v.total / v.samples] }
+
+builder.map("userSpout { name }") { id, u -> emit(u.name, 1) }
+       .as("name", "count").groupBy(1)
+       .red { a, b -> [a.count + b.count] }
+       .saveTo("nameCounts")
+
+builder.map("userSpout { age }") { u -> emit(null, u.age, 1) }
+       .as("null", "total", "samples")
+       .groupBy(1)
+       .red { a, b -> [a.total + b.total, a.samples, b.samples] }
+       .fmt { v -> [v.total / v.samples] }
+       .as("average")
+       .saveTo("averageAge")
+
+builder.map("userSpout { age }") { u -> emit(null, u.age, 1) }
+       .as("null", "total", "samples")
+       .red("total", "samples") { a, b -> [a.total + b.total, a.samples + b.samples] }
+       .fmt("average") { d -> [d.total / d.samples] }
+       .save("averageAge")
+
+builder.map("userSpout { age }") { u -> emit(null, u.age, 1) }.as("null", "total", "samples").groupBy("null")
+       .red { ... }
+       .fmt { d -> [d.total / d.samples] }.as("average")
+       .save("averageAge")
+
+       Above: what is the output scheme? It is "averageAge[null] { average }" but this is non-obvious
+
+
+builder.map("userSpout { age }") { u -> emit(null, u.age, 1) }.as("null", "total", "samples").groupBy(1)
+       .red { a, b -> [a.total + b.total, a.samples + b.samples] }
+       .fmt { d -> [d.total / d.samples] }.as("average")
+       .save("averageAge")
+
+builder.map("userSpout { age }") { u -> emit(null, u.age, 1) }.as("null", "total", "samples").groupBy("null")
+       .red { a, b -> [a.total + b.total, a.samples + b.samples] }
+       .fmt { d -> [d.total / d.samples] }.as("average")
+       .save("averageAge { average }")
+
+builder.map("userSpout { age }") { u -> emit(u.age, 1) }.as("total", "samples")
+       .red { a, b -> [a.total + b.total, a.samples + b.samples] }.as("total", "samples")
+       .fmt { d -> [d.total / d.samples] }.as("average")
+       .save("averageAge { average }")
+
+# This one is clean and fairly easy to read, grouping is implicit and schema is repeated for easy error checking
+# the doc id is kind of obscured and there is no clear place to sort
+builder.map("userSpout { age }") { u -> emit(u.age, 1) }.as("total", "samples")
+       .red { a, b -> [a.total + b.total, a.samples + b.samples] }.as("total", "samples")
+       .fmt { d -> [d.total / d.samples] }.as("average")
+       .save("averageAge { average }")
+
+builder.map("userSpout { age }") { u -> emit(u.age, 1) }.as("total", "samples").groupNone()
+       .red { a, b -> [a.total + b.total, a.samples + b.samples] }.as("total", "samples")
+       .fmt { d -> [d.total / d.samples] }.as("average")
+       .save("averageAge { average }")
+
+builder.map("userSpout { name }") { u -> emit(u.name, 1) }.as("name", "count")
+       .red { a, b -> [a.count + b.count] }.as("count")
+       .save("nameCounts[name] { count }")
+
+builder.map("userSpout { name }") { u -> emit(u.name, 1) }.as("name", "count")
+       .red { a, b -> [a.count + b.count] }.as("count")
+       .save("nameCounts[name] { count }")
+
+builder.map("userSpout { name }") { u -> emit(u.name, 1) }.as("name", "count")
+       .red("tmp { count }") { a, b -> [a.count + b.count] }
+       .save("nameCounts[name] { count }")
+
+builder.map("userSpout { age }") { u -> emit(0, [u.age, 1]) }
+       .red("{ total, samples }") { a, b -> [a.total + b.total, a.samples + b.samples] }
+       .fmt("{ average }") { ... }
+
+
+I have many demos involving sets of values.
+
+Ie. orgToUser(orgId:int) { userIds:List }
+
+    {orgId:23 userIds:[1,2,3,4,5,6]}
+
+This won't scale since all userIds must fit in memory. Even worse, 16 have to be encodable as a column so there is more pressure.
+
+> SELECT orgId, userId FROM orgs JOIN users ON orgs.id = users.orgId
+[1001,1]
+[1001,2]
+[1001,3]
+>
+
+This looks like a row in hbase
+1001/3/user/3
+1001/2/user/2
+
+map("users { id orgId }") { emit(it.orgId, it.id) }.as("orgId", "userId")
+
+No reduce. What does this emit?
+{ orgId userId }
+
+So how do you clear this? You can't, you need a third column. A silently added "value" or "isSet" column.
+
+Now is this even useful? Can we redo orgNames with userNames in top4
+
+def nameCounts = map("users { name }") { emit(it.name, 1) }.as("name", "count")
+                 .red(new Sum()).as("count")
+                 .save()
+def top10Names = ...
+
+def orgIdsInTop10 =
+                  mapTo("name", "orgId").from("users { id name }") { u -> emit(u.name, u.orgId) }
+                  mapTo("name", "isTop10").from("top10Names { names }") { nn -> names.each { emit(it, true) } }.as("name", "isTop10")
+                  redTo("isTop10") { a, b -> [a.isTop10 ?: b.isTop10] }
+
+                   !!!! There is the problem, I can only reduce orgId into a set... but this is working so there must be
+                   an alternate approach.
+
+                   !!!! if we reduce {}.as("isTop10"), we are joinging on name, orgId BUT the orgId of null is a multi row join
+                   Ie. we join on name, orgId -> but also on name, *
+
+                   This implies that a null orgId joins against ALL entries with a shared name.
+                   This implies that we only route on the "shared key", ie. name in this case.
+
+                   It also implies that when reduce gets (["Joe"], ["top10Name"], [0], [1001])
+                   each(SCAN 'Joe/users/*') { user ->
+                     stateMachine.update(key:"Joe", docId:['top10Names','Joe','users',user.id], value: ["Joe", user.orgId, top10Names.isTopTen])
+                   }
+
+The lesson -> DO NOT DO THIS, IT WONT SCALE
+
+But, but, but ...
+
+If we have top2Names = [[7,'Joe'],[9,'Sue']]
+
+// *** this alg is limited because all orgIds must fit in the set
+map (top2NMames) {->it.top4.each{emit(it.name,[],true)}}.as("name", "orgIds", "isTop4")
+map (users) {->emit(it.name,[orgId],false)}.as("name", "orgIds","isTop4")
+red { a, b -> [union(a[0],b[0])] }.as("orgIds")
+
+Can we emit without reducing...
+map (topNames) {->it.top4.each{emit(it.name,true)}}.as("name", "isTopName")
+map (users) {->emit(it.name, it.userId, it.orgId)}.as("name", "orgId")
+build(...) => ('name 'isTopName 'orgId)
+
+ie.
+for each (topNames.emit('name','isTop4'))
+  viewTopNames.update(['name'], {isTop4:d.isTop4})
+scan 'view/users/name.** { key, value ->
+  value.isTop4 = newIsTop4
+  put(key, value)
+
+So any update, updates one row representing the update row.
+Then scans all rows with the common key
+updating the values in that row as well
+and sending a tuple downstream for each update
+
+Is this a generic approach?
+Ie.
+
+map("users { id name orgId }").as( "orgId", "userId", "userName")
+map("orgs { id name }").as("orgId", "orgName")
+red()
+
+the common schema is ('orgId 'userId 'userName 'orgName)
+
+a 'users' event comes in, the users row is updated -> update(['users','orgId',44,'users',24], {userName:doc.userName})
+scan('orgs','orgId',44).each { orgsRow ->
+  update(['orgs','orgId',44], {
+    userId: doc.userId
+    userName: doc.userName
+  }
+}
+
+As each row is updated, it is sent to the reduce...but we cannot pre-reduce during the mapping stage
+ie. tweet.wordCount cannot emit('the', 4)
+
+either, each input gets a pre-reduce, ie. combiner, or we require reduce to respect nulls (but the sig of incoming is unknown at this point)
+
+// *** imagine 55 users in org 44,
+map("users { orgId }") { emit(it.orgId, 1) }.as("orgId", "userCount").combine(new Sum()) // produces 'users/:orgId=44' => [55]
+map("orgs { orgId orgName }").as("orgId", "orgName") // produces 'orgs/:orgId=44' => ['acme']:
+merge {
+
+
+We could have a merge bolt...
+
+
+def userCounts = map("users { orgId }") { emit(it.orgId, 1) }.as("orgId", "userCount").reduce(new Sum()).as("userCount");
+def orgInfo = map("orgs { id name }").as("orgId", "orgName").reduce() // *** produces ('orgId 'orgName)
+
+karma.merge(
+  karma.select("userSpout(id) { id name orgId }").as("userId", "userName", "orgId").groupBy("orgId", "userId"),
+  karma.select("orgSpout(id) { id name }").as("orgId", "orgName")
+) { d -> [d.orgId, d.orgName, d.userId, d.userName] }.as("orgId", "orgName", "userId", "userName");
+
+karma.merge("userSpout(id) { name orgId }",
+
+def ratings = ...
+
+def ratingsWithSize = karma.mapTo("
+
+using push for this is suicide
+
+ie. making the row ('userName 'userCount) would require 1M rows, and EVERY time userCount changed, it would update 1M rows
+this means that put(['user',7], {name:'Joe'}) would results in lets assume 1000 w/s (generous) roughly 1000 seconds to update.
+
+This defeats the entire purpose of push.
+
+
+So back to userNames in org
+
+/*
+orgId: 1001
+user.id: 44
+user.name: 'Joe'
+*/
+map("userSpout { name orgId }") { u -> emit(u.orgId, u.name) }.as("orgId", "userName")
+redNone()
+.groupBy(1).save('myview') // table: myView::userSpout::name::orgId, key: [1001,0,44] :value ['Joe']
+
+
+
+
+
+select("user(id) { name age addresses(id) { city state } }")
+write("user(id) { addresses(id) }", { id:7, name:'Joe', age:27, addresses:[{id:'home', city:'San Francisco', state:'CA'}]})
+
+send("user(id)", {id:7, name:"Joe", age:27})
+
+karma.select("user(id) { name age }").groupBy("name").count() = ('name 'count)
+karma.select("user(id) { orgId }").groupBy("orgId").count() = ('orgId 'count)
+
+
+
+Tree size
+
+Even with a bloom filter reads are slow at 500k+ columns
+
+If we limit to 100,000 columns how many queries do we need?
+

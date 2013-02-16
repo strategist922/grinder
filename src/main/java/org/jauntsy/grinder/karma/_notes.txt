@@ -1,0 +1,59 @@
+Karma - release from the cycle of suffering
+
+- Schemaless
+-
+
+
+update("users(id) { name age }", [1001, "Joe", 27])
+update("users(id) { name }", [1002, "Sue"])
+
+forEach("users(id) { name }").count().newStream("nameCount(name) { count }")
+forEach("tweet(id) { tweet }").map { t -> t.tweet.eachWord { emit(it, 1) } }
+
+forEach("users(id) { name }").sql("SELECT name, COUNT(count) FROM
+
+
+
+        // def sayHello = { named:{ id => name } -> println("Hello, ${named.name}") }
+        // def sayHello = { named: (id) { name } ->
+        // SELECT users(id)[?addresses.state='CA'] { id, name, addresses[?state='CA'] {
+        // INSERT INTO users(id) { id, name, age, addresses(id) { id, city, state } } VALUES [1001, "Joe", 27, [['home', 'SF', 'CA']]]
+        // INSERT INTO users(id) { name, age, addresses(id) { city, state } } VALUES [1001, "Joe", 27, [['home', 'SF', 'CA']]]
+        // INSERT INTO users { name, age, addresses { city, state } } VALUES [[1001], "Joe", 27, [[['home'], 'SF', 'CA']]]
+        // INSERT INTO users { name, age, addresses { city, state } } VALUES [1001,["Joe", 27, [[['home'], 'SF', 'CA']]]
+        // SELECT users(id) { id, name } => [[7,"Joe"]]
+        /*
+         db.write(
+            "users[id] { addresses[id] }",
+            M(
+                "id", 1001,
+                "name", "Joe",
+                "age", 27,
+                "addresses", L(
+                    M(
+                        "id", "home",
+                        "city", "San Francisco",
+                        "state", "CA"
+                    )
+                )
+            )
+         )
+
+         > db.read("users[id:7] { id, name, age, addresses[id] { id, city, state } }")
+         (:id 7 :name 'Joe' :age 27 :addresses [(:id 'home' :city 'San Francisco' :state 'CA')])
+         > db.scan("clicksPer[year:1992,month,day?total > 100] { year month day total }")
+        */
+
+        /*
+        // MAP { name } FROM users(id) USING { u -> emit(u.name, 1) }
+        // RED { count } INTO nameCount(name) USING { a, b -> [a.count + b.count] }
+
+        MAP { addresses { city } } FROM users(id) { addresses(id) } USING { u -> u.addresses.each { emit(it.state, it.city, 1) }
+        RED { count } INTO cityCounts(state city) USING Sum()
+
+        MAP { name } FROM users(id) USING OnePer("name")
+        RED { count } INTO nameCounts(name) USING Sum()
+        */
+
+
+Performance ... batch bolt

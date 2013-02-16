@@ -1,0 +1,27 @@
+So you have
+
+user(id) {
+  name
+  age
+}
+
+And build a view using
+
+MAP { name age } FROM users(id) RED { name age } INTO userList(id) USING FIRST()
+
+And a nice webpage that lists them
+### Users
+1. Joe, 27
+2. Sue, 32
+
+And you want to add an optional screen_name...
+If we cannot emit nulls, how do we deal with optional values?
+
+MAP { name age } FROM users(id) USING {[name,age,null]}
+MAP { screen_name } FROM users(id) USING {[null,null,screen_name]}
+RED { name age screen_name } INTO userList(id) USING MIN()
+
+NOTE TO SELF: remove the constraint that outputs cannot contain nulls.
+The input schema will prune nulls, no need to do extra work.
+
+MAP { name age screen_name? } <= This? Allow optional nulls? Instinct says no.

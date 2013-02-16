@@ -1,0 +1,101 @@
+currently only a single map/reduce op is transactional...
+
+when an event occurs, ie. rename sally to bob
+we look up the last version of namecount user:7 -> name:sally
+we emit (['namecount','sally'], ['user',7], null)
+   emit (['namecount', 'bob'], ['user', 7], 1)
+
+each are reduced and commited
+
+the mapper saves namecount:user:7 -> name:bob
+
+and send [namecount/sally, null] upstream
+and send [namecount/bob, 1] upstream
+
+upstream crashes, spout replays user:7 -> name:bob
+mapper thinks there is nothing to do
+
+[namecount/sally,null] is not sent a second time
+
+Solution #1 -> Transactional spout (storm method)
+txId is sent from spout
+last version is loaded, if txId is same, this is a resend, process the prev value as current
+if txId is not same, process the current value as current
+limits.... only one message is processed at a time... yuck
+
+Solution #2 -> commit stream
+Every node both acknowledges the tuple AND maintains an _oncommit_ hook that tracks all downstream sends.
+Downstream "acks" both ack and send a confirmation back on the commit channel. Essentially simulating the ack flowing back
+through the call chain rather than going directly back to the spout.
+Drawbacks, extra messages, non-standard.
+
+Solution #3 -> version at the spout, always send current and prev with the tuple
+The spout looks up the previous value before sending the first tuple.
+Tuples are sent as [prev,next]
+on commit, the 'next' value is saved over the 'prev' value.
+Hard to mix with current spouts and bolts
+Assumes that each spout has exclusive rights to the key which may or may not be true.
+It is possible that a spout has [user,1,[name,joe]] while another spout has [user,1,[name,joe]]
+In this case, both would attempt to read and write the same key and chaos would ensue.
+Good: no changes to storm itself. Just wrap spouts. Everything else just sort of works.
+Bad... sending two values all the way downstream invisibly? How?
+
+Solution #4: front each spout with a bolt which does a lookup and adds prev+next
+On ack, send a 2nd message, to the spout which saves the new value and then acks
+on 2nd ack at spout, commit offsets
+
+We would need to send prev+next to every node ... this makes almost no sense, i don't understand it.
+
+How would you wrap a bolt via "ack"
+
+
+map -> gets joe, looks up current, gets sally,
+  send -> sally no
+          joe yes
+
+  each bolt has a "special" collector
+  this collector, on send, adds the send to the current TX for this bolt (send can block, locking the thread.. how do you process commits?)
+
+  this collector, on ack, looks up the tx, sees if its done, when done, calls onCommit() and REALLY acks the tuple
+
+  by default, onCommit does nothing
+
+
+  If we make every tuple a "batch", ie. emits for a single tuple are always gathered and sent downstream with enough extra info so the downstream bolt
+  can tell the batch is finished. OR all sends are grouped by key and sent together and processed that way. If either occurs the downstream
+  op can stall emits till after all items are cleared.
+
+  move user joe from org a to org b
+  emit a null
+  emit b 1
+    to usercount4org
+      emit 0 and 1 to averagePerOrg
+
+      o
+     / \
+  o-o   o-o
+     \ /
+      o
+
+  bolt 2, sends to 3a and 3b which send to bolt 4, but there is no way to know that both will end up at 4 so there is no way
+  to wait for the 2nd value. We don't know its coming anyway. Some kind of crazy "tick" from each spout along with
+  a source spout would let bolts process items on a spout basis.
+
+   spout emits 1: move joe from a -> b
+     emits spout 1: a:null
+           spout 1: b:1
+     emits spout1: a,null: a:32
+           spout1: b,1; b:55
+     blocks -> can't process spout1 till spout2 occurs
+     spout emits spout2 'tick'
+     each bolt gets tick and sends it upstream
+     bolt gets spout2 which then clears spout1 events to process
+
+
+Ticks are ugly no
+
+So...
+
+
+Op get tuple, emit tuples
+if (nothing emitted

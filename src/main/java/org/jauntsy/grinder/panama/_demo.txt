@@ -1,0 +1,45 @@
+deploy cluster A
+deploy cluster B
+add subscription from A to B
+
+
+
+
+
+if reduce tree for usersByName/'joe' has
+
+/user/7 => null
+
+map stage produces
+
+user/7 => (:name 'joe') => map { k, v -> emit(v.name, null) }
+maps/userByName/joe/user/7 => null
+
+map('usersByName') { k, v -> emit(k.name, 1) }.into('nameCount')
+/nameCount/joe/userByName/joe/user/7
+
+map('user') { k, v -> emit(v.name, 1) }
+/nameCount/joe/user/7 => 1
+
+The table is fine, the 'key' is 'joe', the doc id is /user/7 ?
+
+BUT, in the reduction of the mapped values, we need to know that the 'key' is joe
+
+Since the key is emitted at runtime we could have
+
+{ v -> emit(v.name, 1) }
+/someTable/joe/user/7 => 1
+{ v -> emit(v.name, v.age, 1) }
+/someTable/joe/32/user/7 => 1
+
+So what gets reduced?
+this brings in the schema
+
+
+map('users') { k, v -> emit(v.name, 1) }.groupBy("age")
+
+getView('users').groupedBy('name').addSource('users') { k, v -> emit(v.name, null) }
+
+users_byNameAsc
+
+getView('users', 'byName', 1)
